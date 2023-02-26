@@ -16,11 +16,40 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <netdb.h>
+#include <argp.h>
 #include "../include/macros.h"
 #include "../include/list_utils.h"
 #include "../include/path_utils.h"
 #include "../include/server_utils.h"
 #include "../dependencies/http-parser/http_parser.h"
+
+const char docstring[] = "Asynchronous Web Server - A basic"
+"implementation of a server using I/O multiplexing";
+
+const char *argp_program_version = "async_server 1.0";
+static struct argp_option options[] = {
+	{"port", 'p', "PORT", 0, "Select the port the server will run on", 0 },
+	{ 0 }
+};
+
+struct arguments
+{
+	char *port;
+};
+
+static error_t parse_options (int key, char *arg, struct argp_state *state) {
+	struct arguments *args = state->input;
+	switch (key) {
+		case 'p':
+			args->port = arg;
+			break;
+		default:
+			return ARGP_ERR_UNKNOWN;
+	}
+	return 0;
+}
+
+static struct argp parser = {options, parse_options, 0, docstring};
 
 static struct epoll_event events[SOMAXCONN];
 
@@ -29,13 +58,18 @@ int main(int argc, char** argv)
 	int nr_events;
 	int res;
 	struct epoll_event evt;
+	struct arguments arguments;
+	arguments.port = NULL;
 	char *port = getenv("ASYNC_SERVER_PORT");
-	fprintf(stderr, "%s\n", port);
-	if (port != NULL) {
-		res = init_server(port);
-	} else {
-		res = init_server(AWS_PORT);
+	if (port == NULL) {
+		port = AWS_PORT;
 	}
+	argp_parse(&parser, argc, argv, 0, 0, &arguments);
+	if (arguments.port != NULL) {
+		port = arguments.port;
+	}
+	fprintf(stderr, "%s\n", port);
+	res = init_server(port);
 	if (res < 0)
 		exit(1);
 	memset(&evt, 0, sizeof(evt));
