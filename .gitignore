@@ -1,4 +1,6 @@
 build/*
+static/
+dynamic
 server
 .vscode
 *.o
