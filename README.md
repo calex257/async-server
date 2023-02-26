@@ -22,7 +22,7 @@ By default, the server runs on localhost on port 8888,
 but you can choose the port by modifying the `ASYNC_SERVER_PORT`
 environment variable like in the following example:
 
-```
+```console
 $ ASYNC_SERVER_PORT=9999 ./server
 
 
@@ -33,6 +33,29 @@ $ netstat -tulpn
 Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name
 [...]
 tcp        0      0 127.0.0.1:9999          0.0.0.0:*               LISTEN      30291/./server
+[...]
+
+```
+
+Alternatively, you can specify the port using the `-p`
+argument or its long form, `--port`. This option overrides the ASYNC_SERVER_PORT environment
+variable.
+
+Example:
+
+```console
+# defining the environment variable is not necessary
+# in this example it is done so as to show the overriding behaviour
+$ ASYNC_SERVER_PORT=9999 ./server --port 7000
+
+
+# in another terminal
+
+$ netstat -tulpn
+
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name
+[...]
+tcp        0      0 127.0.0.1:7000          0.0.0.0:*               LISTEN      30291/./server
 [...]
 
 ```
