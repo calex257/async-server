@@ -6,9 +6,13 @@ PARSER_DIR = ./dependencies/http-parser
 SRC := $(wildcard $(SRC_DIR)/*.c)
 OBJ := $(patsubst $(SRC_DIR)/%.c,$(OUT_DIR)/%.o,$(SRC))
 
-$(info $(OBJ))
+all: build dir
 
-all: build
+.PHONY: dir
+dir:
+	mkdir -p build
+
+-include dir
 
 build: server
 
