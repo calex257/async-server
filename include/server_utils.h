@@ -148,7 +148,7 @@ struct server_t {
 	 * Pointer catre conexiunea care este tratata la un moment dat.
 	 */
 	struct connection_t *curr_connection;
-} server;
+};
 
 
 
@@ -180,7 +180,7 @@ int get_listening_socket(char *ip_addr, char *port);
  * pointer la structura aferenta conexiunii care este
  * tratata
  */
-void remove_connection(struct connection_t *conn);
+void remove_connection(struct server_t *server, struct connection_t *conn);
 
 /*
  * Se accepta o noua conexiune pe socket-ul de listen si
@@ -189,7 +189,7 @@ void remove_connection(struct connection_t *conn);
  * de tip EPOLLIN(input) si se adauga in lista de conexiuni
  * retinuta de server.
  */
-void register_connection(void);
+void register_connection(struct server_t *server);
 
 /*
  * Se creeaza un parser HTTP care sa parseze request-ul
@@ -201,7 +201,7 @@ void register_connection(void);
  * @param res
  * numarul total de bytes cititi de la client
  */
-void parse_request(struct connection_t *conn, size_t res);
+void parse_request(struct server_t *server, struct connection_t *conn, size_t res);
 
 /*
  * Dupa ce request-ul a fost citit, se parseaza
@@ -212,7 +212,7 @@ void parse_request(struct connection_t *conn, size_t res);
  * pointer la structura aferenta conexiunii care este
  * tratata
  */
-void prepare_transfer(struct connection_t *conn);
+void prepare_transfer(struct server_t *server, struct connection_t *conn);
 
 /*
  * Transfera datele care compun header-ul HTTP al mesajului
@@ -221,7 +221,7 @@ void prepare_transfer(struct connection_t *conn);
  * pointer la structura aferenta conexiunii care este
  * tratata
  */
-void transfer_header(struct connection_t *conn);
+void transfer_header(struct server_t *server, struct connection_t *conn);
 
 /*
  * Transfera date dintr-un fisier static folosind
@@ -231,7 +231,7 @@ void transfer_header(struct connection_t *conn);
  * pointer la structura aferenta conexiunii care este
  * tratata
  */
-void receive_async_data(struct connection_t *conn);
+void receive_async_data(struct server_t *server, struct connection_t *conn);
 
 /*
  * Transfera date dintr-un fisier static folosind
@@ -252,7 +252,7 @@ void transfer_static_file(struct connection_t *conn);
  * pointer la structura aferenta conexiunii care este
  * tratata
  */
-void transfer_dynamic_file(struct connection_t *conn);
+void transfer_dynamic_file(struct server_t *server, struct connection_t *conn);
 
 /*
  * In functie de cat s-a transmis din raspunsul catre
@@ -263,7 +263,7 @@ void transfer_dynamic_file(struct connection_t *conn);
  * pointer la structura aferenta conexiunii care este
  * tratata
  */
-void transfer_data(struct connection_t *conn);
+void transfer_data(struct server_t *server, struct connection_t *conn);
 
 /*
  * Se citesc datele primite de la client pana la intalnirea
@@ -274,7 +274,7 @@ void transfer_data(struct connection_t *conn);
  * pointer la structura aferenta conexiunii care este
  * tratata
  */
-void read_request(struct connection_t *conn);
+void read_request(struct server_t *server, struct connection_t *conn);
 
 /*
  * Initializeaza serverul. Se creaza socket-ul de listen,
@@ -282,7 +282,7 @@ void read_request(struct connection_t *conn);
  * fiind initial vida. Se adauga la lista de file descriptori
  * a instantei de epoll socket-ul de listen.
  */
-int init_server(char* port);
+int init_server(struct server_t* server, char* port);
 
 /*
  * Se primeste rezultatul citirii asincrone din fisier
@@ -293,6 +293,6 @@ int init_server(char* port);
  * pointer la structura aferenta conexiunii care este
  * tratata
  */
-void send_async_data(struct connection_t *conn);
+void send_async_data(struct server_t *server, struct connection_t *conn);
 
 #endif

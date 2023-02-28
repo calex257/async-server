@@ -37,19 +37,3 @@ int check_path(struct connection_t *conn)
 	conn->req_file_size = st.st_size;
 	return 0;
 }
-
-/*
- * Callback folosit pentru obtinerea path-ului din
- * request-ul primit de la client.
- * @param p
- * parser-ul care apeleaza callback-ul
- * @param buf
- * buffer-ul din care se transfera path-ul
- * @param len
- * numarul de bytes care trebuie transferati
- */
-int get_http_request_path(http_parser *p, const char *buf, size_t len)
-{
-	strncat(server.curr_connection->req_file_path, buf, len);
-	return 0;
-}

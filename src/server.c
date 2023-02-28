@@ -59,6 +59,7 @@ int main(int argc, char** argv)
 	int res;
 	struct epoll_event evt;
 	struct arguments arguments;
+	struct server_t server;
 	arguments.port = NULL;
 	char *port = getenv("ASYNC_SERVER_PORT");
 	if (port == NULL) {
@@ -69,7 +70,7 @@ int main(int argc, char** argv)
 		port = arguments.port;
 	}
 	fprintf(stderr, "%s\n", port);
-	res = init_server(port);
+	res = init_server(&server, port);
 	if (res < 0)
 		exit(1);
 	memset(&evt, 0, sizeof(evt));
@@ -85,19 +86,19 @@ int main(int argc, char** argv)
 		for (int i = 0; i < nr_events; i++) {
 			if (events[i].data.fd == server.listener) {
 				if (events[i].events & EPOLLIN)
-					register_connection();
+					register_connection(&server);
 			} else {
 				struct connection_t *conn = (struct connection_t *)events[i].data.ptr;
 
 				if (events[i].events & EPOLLIN) {
 					if (conn->state == ASYNC_FREAD)
-						send_async_data(conn);
+						send_async_data(&server, conn);
 					else
-						read_request(conn);
+						read_request(&server, conn);
 				} else if (events[i].events & EPOLLOUT)
-					transfer_data(conn);
+					transfer_data(&server, conn);
 				else if (events[i].events & (EPOLLHUP | EPOLLRDHUP))
-					remove_connection(conn);
+					remove_connection(&server, conn);
 			}
 		}
 	}

@@ -40,6 +40,8 @@ static const char *request_boilerplate = "HTTP/1.1 200 OK\r\n"
 "Content-Length: %u\r\n"
 "\r\n";
 
+static char path_buffer[256];
+
 /*
  * Structura care contine callback-urile transmise
  * unui parser HTTP. Din moment ce singura valoare
@@ -58,6 +60,22 @@ static struct http_parser_settings settings = {
 	.on_body = 0,
 	.on_message_complete = 0
 };
+
+/*
+ * Callback folosit pentru obtinerea path-ului din
+ * request-ul primit de la client.
+ * @param p
+ * parser-ul care apeleaza callback-ul
+ * @param buf
+ * buffer-ul din care se transfera path-ul
+ * @param len
+ * numarul de bytes care trebuie transferati
+ */
+int get_http_request_path(http_parser *p, const char *buf, size_t len)
+{
+	strncat(path_buffer, buf, len);
+	return 0;
+}
 
 /*
  * Returneaza un pointer la un nou obiect de tip struct connection_t
@@ -88,21 +106,21 @@ struct connection_t *new_connection(void)
  * fiind initial vida. Se adauga la lista de file descriptori
  * a instantei de epoll socket-ul de listen.
  */
-int init_server(char* port)
+int init_server(struct server_t* server, char* port)
 {
-	server.listener = get_listening_socket(LOCALHOST, port);
-	server.epoll_instance = epoll_create1(0);
-	if (server.epoll_instance < 0) {
+	server->listener = get_listening_socket(LOCALHOST, port);
+	server->epoll_instance = epoll_create1(0);
+	if (server->epoll_instance < 0) {
 		perror(ERROR_STRING "epoll_create1");
 		return -1;
 	}
-	server.conn_list = NULL;
+	server->conn_list = NULL;
 	struct epoll_event evt;
 
 	memset(&evt, 0, sizeof(evt));
-	evt.data.fd = server.listener;
+	evt.data.fd = server->listener;
 	evt.events = EPOLLIN;
-	D_CALL(epoll_ctl(server.epoll_instance, EPOLL_CTL_ADD, server.listener, &evt), < 0);
+	D_CALL(epoll_ctl(server->epoll_instance, EPOLL_CTL_ADD, server->listener, &evt), < 0);
 	return 0;
 }
 
@@ -148,13 +166,13 @@ int get_listening_socket(char *ip_addr, char *port)
  * pointer la structura aferenta conexiunii care este
  * tratata
  */
-void remove_connection(struct connection_t *conn)
+void remove_connection(struct server_t *server, struct connection_t *conn)
 {
 	if (conn->file_exists)
 		D_CALL_EXIT(close(conn->req_file_fd), < 0);
-	D_CALL(epoll_ctl(server.epoll_instance, EPOLL_CTL_DEL, conn->fd, NULL), < 0);
+	D_CALL(epoll_ctl(server->epoll_instance, EPOLL_CTL_DEL, conn->fd, NULL), < 0);
 	D_CALL_EXIT(close(conn->fd), < 0);
-	remove_list(&(server.conn_list), conn);
+	remove_list(&(server->conn_list), conn);
 }
 
 /*
@@ -162,24 +180,24 @@ void remove_connection(struct connection_t *conn)
  * se marcheaza ca non-blocanta. Se adauga noua conexiune
  * la lista de evenimente epoll, initial pentru evenimente
  * de tip EPOLLIN(input) si se adauga in lista de conexiuni
- * retinuta de server.
+ * retinuta de server->
  */
-void register_connection(void)
+void register_connection(struct server_t *server)
 {
 	struct epoll_event evt;
 	struct connection_t *conn = new_connection();
 	int flags;
 
 	memset(&evt, 0, sizeof(evt));
-	conn->fd = accept4(server.listener, &(conn->address), &(conn->addr_len), SOCK_NONBLOCK);
+	conn->fd = accept4(server->listener, &(conn->address), &(conn->addr_len), SOCK_NONBLOCK);
 	flags = fcntl(conn->fd, F_GETFL);
 	D_CALL(fcntl(conn->fd, F_SETFL, flags | O_NONBLOCK), < 0);
 	CHECK_NON_BLOCK(conn->fd);
 	evt.data.ptr = conn;
 	evt.events = EPOLLIN | EPOLLRDHUP;
 	conn->state = NEW;
-	D_CALL(epoll_ctl(server.epoll_instance, EPOLL_CTL_ADD, conn->fd, &evt), < 0);
-	add_list(&(server.conn_list), conn);
+	D_CALL(epoll_ctl(server->epoll_instance, EPOLL_CTL_ADD, conn->fd, &evt), < 0);
+	add_list(&(server->conn_list), conn);
 }
 
 /*
@@ -191,9 +209,9 @@ void register_connection(void)
  * pointer la structura aferenta conexiunii care este
  * tratata
  */
-void prepare_transfer(struct connection_t *conn)
+void prepare_transfer(struct server_t *server, struct connection_t *conn)
 {
-	parse_request(conn, conn->bytes_read);
+	parse_request(server, conn, conn->bytes_read);
 	int file_exists = check_path(conn);
 
 	if (file_exists < 0) {
@@ -223,7 +241,7 @@ void prepare_transfer(struct connection_t *conn)
  * pointer la structura aferenta conexiunii care este
  * tratata
  */
-void transfer_header(struct connection_t *conn)
+void transfer_header(struct server_t *server, struct connection_t *conn)
 {
 	int res = send(conn->fd, conn->outbuf + conn->bytes_written,
 		conn->header_len - conn->bytes_written, MSG_DONTWAIT);
@@ -241,7 +259,7 @@ void transfer_header(struct connection_t *conn)
 
 			evt.events = EPOLLIN | EPOLLET;
 			evt.data.ptr = conn;
-			D_CALL(epoll_ctl(server.epoll_instance, EPOLL_CTL_ADD, conn->evfd, &evt), < 0);
+			D_CALL(epoll_ctl(server->epoll_instance, EPOLL_CTL_ADD, conn->evfd, &evt), < 0);
 			conn->bytes_written = 0;
 			io_setup(1, &(conn->io_con));
 			conn->icb = calloc(1, sizeof(*(conn->icb)));
@@ -263,14 +281,15 @@ void transfer_header(struct connection_t *conn)
  * @param res
  * numarul total de bytes cititi de la client
  */
-void parse_request(struct connection_t *conn, size_t res)
+void parse_request(struct server_t *server, struct connection_t *conn, size_t res)
 {
 	struct http_parser parser;
 
-	server.curr_connection = conn;
+	server->curr_connection = conn;
 	http_parser_init(&parser, HTTP_REQUEST);
 	http_parser_execute(&parser, &settings, conn->inbuf, res);
 	http_parser_execute(&parser, &settings, NULL, 0);
+	strncpy(server->curr_connection->req_file_path, path_buffer, 256);
 }
 
 /*
@@ -281,7 +300,7 @@ void parse_request(struct connection_t *conn, size_t res)
  * pointer la structura aferenta conexiunii care este
  * tratata
  */
-void receive_async_data(struct connection_t *conn)
+void receive_async_data(struct server_t *server, struct connection_t *conn)
 {
 	struct epoll_event evt;
 
@@ -292,8 +311,8 @@ void receive_async_data(struct connection_t *conn)
 		BUFSIZ, conn->bytes_written_total - conn->header_len);
 	io_set_eventfd(conn->icb, conn->evfd);
 	CHECK_IO_SUBMIT_USE(io_submit(conn->io_con, 1, &(conn->icb)));
-	D_CALL(epoll_ctl(server.epoll_instance, EPOLL_CTL_MOD, conn->evfd, &evt), < 0);
-	D_CALL(epoll_ctl(server.epoll_instance, EPOLL_CTL_DEL, conn->fd, &evt), < 0);
+	D_CALL(epoll_ctl(server->epoll_instance, EPOLL_CTL_MOD, conn->evfd, &evt), < 0);
+	D_CALL(epoll_ctl(server->epoll_instance, EPOLL_CTL_DEL, conn->fd, &evt), < 0);
 }
 
 /*
@@ -324,11 +343,11 @@ void transfer_static_file(struct connection_t *conn)
  * pointer la structura aferenta conexiunii care este
  * tratata
  */
-void transfer_dynamic_file(struct connection_t *conn)
+void transfer_dynamic_file(struct server_t *server, struct connection_t *conn)
 {
 	if (conn->bytes_to_write - conn->bytes_written == 0) {
 		conn->state = ASYNC_FREAD;
-		receive_async_data(conn);
+		receive_async_data(server, conn);
 		return;
 	}
 	int res = send(conn->fd, conn->outbuf + conn->bytes_written, conn->bytes_to_write - conn->bytes_written, MSG_DONTWAIT);
@@ -344,7 +363,7 @@ void transfer_dynamic_file(struct connection_t *conn)
 		}
 		if (conn->bytes_written >= conn->bytes_to_write) {
 			conn->state = ASYNC_FREAD;
-			receive_async_data(conn);
+			receive_async_data(server, conn);
 		}
 	} else
 		perror(ERROR_STRING "send");
@@ -359,18 +378,18 @@ void transfer_dynamic_file(struct connection_t *conn)
  * pointer la structura aferenta conexiunii care este
  * tratata
  */
-void transfer_data(struct connection_t *conn)
+void transfer_data(struct server_t *server, struct connection_t *conn)
 {
 	if (conn->bytes_written_total < conn->header_len)
-		transfer_header(conn);
+		transfer_header(server, conn);
 	if (conn->bytes_written_total >= conn->header_len && conn->file_exists) {
 		if (conn->is_async)
-			transfer_dynamic_file(conn);
+			transfer_dynamic_file(server, conn);
 		else
 			transfer_static_file(conn);
 	}
 	if (conn->bytes_written_total >= conn->req_file_size + conn->header_len)
-		remove_connection(conn);
+		remove_connection(server, conn);
 }
 
 /*
@@ -382,7 +401,7 @@ void transfer_data(struct connection_t *conn)
  * pointer la structura aferenta conexiunii care este
  * tratata
  */
-void read_request(struct connection_t *conn)
+void read_request(struct server_t *server, struct connection_t *conn)
 {
 	int res = recv(conn->fd, conn->inbuf + conn->bytes_read, BUFSIZ, MSG_DONTWAIT);
 
@@ -394,8 +413,8 @@ void read_request(struct connection_t *conn)
 
 			new_e.events = EPOLLOUT | EPOLLRDHUP;
 			new_e.data.ptr = conn;
-			D_CALL(epoll_ctl(server.epoll_instance, EPOLL_CTL_MOD, conn->fd, &new_e), < 0);
-			prepare_transfer(conn);
+			D_CALL(epoll_ctl(server->epoll_instance, EPOLL_CTL_MOD, conn->fd, &new_e), < 0);
+			prepare_transfer(server, conn);
 		}
 		return;
 	}
@@ -403,7 +422,7 @@ void read_request(struct connection_t *conn)
 
 	new_e.events = EPOLLRDHUP;
 	new_e.data.ptr = conn;
-	D_CALL(epoll_ctl(server.epoll_instance, EPOLL_CTL_MOD, conn->fd, &new_e), < 0);
+	D_CALL(epoll_ctl(server->epoll_instance, EPOLL_CTL_MOD, conn->fd, &new_e), < 0);
 }
 
 /*
@@ -415,7 +434,7 @@ void read_request(struct connection_t *conn)
  * pointer la structura aferenta conexiunii care este
  * tratata
  */
-void send_async_data(struct connection_t *conn)
+void send_async_data(struct server_t *server, struct connection_t *conn)
 {
 	struct epoll_event evt;
 	struct io_event ievt;
@@ -425,6 +444,6 @@ void send_async_data(struct connection_t *conn)
 	evt.data.ptr = conn;
 	io_getevents(conn->io_con, 1, 1, &ievt, NULL);
 	conn->bytes_to_write = ievt.res;
-	D_CALL(epoll_ctl(server.epoll_instance, EPOLL_CTL_ADD, conn->fd, &evt), < 0);
+	D_CALL(epoll_ctl(server->epoll_instance, EPOLL_CTL_ADD, conn->fd, &evt), < 0);
 	conn->bytes_written = 0;
 }
