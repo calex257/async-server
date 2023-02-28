@@ -290,6 +290,7 @@ void parse_request(struct server_t *server, struct connection_t *conn, size_t re
 	http_parser_execute(&parser, &settings, conn->inbuf, res);
 	http_parser_execute(&parser, &settings, NULL, 0);
 	strncpy(server->curr_connection->req_file_path, path_buffer, 256);
+	path_buffer[0] = 0;
 }
 
 /*
